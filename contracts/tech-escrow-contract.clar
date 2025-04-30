@@ -12,6 +12,11 @@
 (define-constant ERR-DISPUTE-EXISTS (err u106))
 (define-constant ERR-NO-DISPUTE (err u107))
 (define-constant ERR-TRANSFER-FAILED (err u108))
+(define-constant ERR-INVALID-FREELANCER (err u109))
+(define-constant ERR-INVALID-MILESTONE-COUNT (err u110))
+(define-constant ERR-INVALID-DESCRIPTION (err u111))
+(define-constant ERR-INVALID-AMOUNT (err u112))
+(define-constant ERR-INVALID-REASON (err u113))
 
 ;; Data structures
 (define-map projects
@@ -64,6 +69,15 @@
   (map-get? disputes { project-id: project-id })
 )
 
+;; Validation functions
+(define-read-only (is-valid-description (description (string-utf8 256)))
+  (> (len description) u0)
+)
+
+(define-read-only (is-valid-reason (reason (string-utf8 256)))
+  (> (len reason) u0)
+)
+
 ;; Public functions
 
 ;; Create a new project with milestones
@@ -73,13 +87,19 @@
     (total-amount uint)
     (milestone-count uint))
   (let ((existing-project (get-project project-id)))
+    ;; Validate inputs
+    (asserts! (not (is-eq tx-sender freelancer)) ERR-INVALID-FREELANCER)
+    (asserts! (> milestone-count u0) ERR-INVALID-MILESTONE-COUNT)
+    (asserts! (> total-amount u0) ERR-INVALID-AMOUNT)
+
+    ;; Check project doesn't exist and client has enough funds
     (asserts! (is-none existing-project) ERR-PROJECT-EXISTS)
     (asserts! (>= (stx-get-balance tx-sender) total-amount) ERR-INSUFFICIENT-FUNDS)
 
     ;; Transfer STX to contract
     (try! (stx-transfer? total-amount tx-sender (as-contract tx-sender)))
 
-    ;; Create project
+    ;; Create project with validated inputs
     (map-set projects
       { project-id: project-id }
       {
@@ -104,12 +124,16 @@
     (description (string-utf8 256)) 
     (amount uint))
   (let ((project (unwrap! (get-project project-id) ERR-PROJECT-NOT-FOUND)))
+    ;; Validate inputs
+    (asserts! (is-valid-description description) ERR-INVALID-DESCRIPTION)
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+
     ;; Check authorization
     (asserts! (is-eq tx-sender (get client project)) ERR-NOT-AUTHORIZED)
     ;; Check milestone ID is valid
     (asserts! (< milestone-id (get milestone-count project)) ERR-MILESTONE-NOT-FOUND)
 
-    ;; Create milestone
+    ;; Create milestone with validated inputs
     (map-set milestones
       { project-id: project-id, milestone-id: milestone-id }
       {
@@ -172,7 +196,7 @@
       })
     )
 
-    ;; Transfer payment to freelancer - FIX: Added try! to handle the response
+    ;; Transfer payment to freelancer
     (try! (as-contract (stx-transfer? (get amount milestone) tx-sender (get freelancer project))))
 
     (ok true)
@@ -182,6 +206,9 @@
 ;; Create a dispute (by client or freelancer)
 (define-public (create-dispute (project-id (string-ascii 36)) (reason (string-utf8 256)))
   (let ((project (unwrap! (get-project project-id) ERR-PROJECT-NOT-FOUND)))
+    ;; Validate input
+    (asserts! (is-valid-reason reason) ERR-INVALID-REASON)
+
     ;; Check authorization
     (asserts! (or 
       (is-eq tx-sender (get client project)) 
@@ -191,7 +218,7 @@
     ;; Check no dispute exists
     (asserts! (is-none (get-dispute project-id)) ERR-DISPUTE-EXISTS)
 
-    ;; Create dispute
+    ;; Create dispute with validated input
     (map-set disputes
       { project-id: project-id }
       {
@@ -263,7 +290,7 @@
     ;; Check authorization
     (asserts! (is-eq tx-sender (get client project)) ERR-NOT-AUTHORIZED)
 
-    ;; Refund remaining amount to client - FIX: Added try! to handle the response
+    ;; Refund remaining amount to client
     (try! (as-contract (stx-transfer? (get remaining-amount project) tx-sender (get client project))))
 
     ;; Delete project
