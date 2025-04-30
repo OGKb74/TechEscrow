@@ -11,6 +11,7 @@
 (define-constant ERR-MILESTONE-ALREADY-PAID (err u105))
 (define-constant ERR-DISPUTE-EXISTS (err u106))
 (define-constant ERR-NO-DISPUTE (err u107))
+(define-constant ERR-TRANSFER-FAILED (err u108))
 
 ;; Data structures
 (define-map projects
@@ -171,8 +172,10 @@
       })
     )
 
-    ;; Transfer payment to freelancer
-    (as-contract (stx-transfer? (get amount milestone) tx-sender (get freelancer project)))
+    ;; Transfer payment to freelancer - FIX: Added try! to handle the response
+    (try! (as-contract (stx-transfer? (get amount milestone) tx-sender (get freelancer project))))
+
+    (ok true)
   )
 )
 
@@ -260,8 +263,8 @@
     ;; Check authorization
     (asserts! (is-eq tx-sender (get client project)) ERR-NOT-AUTHORIZED)
 
-    ;; Refund remaining amount to client
-    (as-contract (stx-transfer? (get remaining-amount project) tx-sender (get client project)))
+    ;; Refund remaining amount to client - FIX: Added try! to handle the response
+    (try! (as-contract (stx-transfer? (get remaining-amount project) tx-sender (get client project))))
 
     ;; Delete project
     (map-delete projects { project-id: project-id })
